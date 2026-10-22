@@ -1,9 +1,10 @@
-# <img alt="dictate-icon" src="icon.png" height="60"> ‎ ‎ ‎Dictate
+# <img alt="dictate-icon" src="icon.png" height="60" align="absmiddle"> ‎ ‎ ‎dictate
 
 [![macOS](https://img.shields.io/badge/macOS-26%2B-FF653A?style=flat-square)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.2-FF653A?style=flat-square)](https://swift.org)
+[![License](https://img.shields.io/badge/license-MIT-FF653A?style=flat-square)](LICENSE)
 
-**Dictate** is push-to-talk dictation for macOS. Hold Right ⌘, talk, and let go. Your speech is transcribed on-device with Parakeet, cleaned up by Claude Haiku, and pasted wherever your cursor is.
+**dictate** is push-to-talk dictation for macOS. Hold Right ⌘, talk, and let go. Your speech is transcribed on-device with Parakeet, cleaned up by Claude Haiku, and pasted wherever your cursor is.
 
 ## Install
 
@@ -31,3 +32,7 @@ Without a key or internet, Apple's on-device model does the cleanup instead.
 ## Contact
 
 - Ravi Bandaru: ravi.bandaru@northwestern.edu
+
+## License
+
+MIT. See the included `LICENSE` file.
