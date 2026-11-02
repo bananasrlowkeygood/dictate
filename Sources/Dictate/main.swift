@@ -118,6 +118,14 @@ final class Dictate: NSObject, NSApplicationDelegate {
         session += 1
         recorder.stop { _ in }
         hud.hide()
+        Self.announceDone(pasted: false)
+    }
+
+    /// Tells other apps a dictation ended. Remote (bananasrlowkeygood/remote) waits for this
+    /// to press Return after a dictation started from the Siri Remote.
+    static func announceDone(pasted: Bool) {
+        DistributedNotificationCenter.default().postNotificationName(
+            .init("com.ravibandaru.dictate.done"), object: nil, userInfo: ["pasted": pasted], deliverImmediately: true)
     }
 
     private func finish() {
@@ -146,9 +154,11 @@ final class Dictate: NSObject, NSApplicationDelegate {
                         let pop = NSSound(named: "Pop")
                         pop?.volume = 0.25
                         pop?.play()
+                        Self.announceDone(pasted: false)
                     } else {
                         Paster.paste(text)
                         log("Pasted via \(raw ? "raw (Shift)" : path.rawValue) in \(elapsed) ms")
+                        Self.announceDone(pasted: true)
                     }
                 }
             }
