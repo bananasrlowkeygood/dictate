@@ -4,7 +4,7 @@
 [![Swift](https://img.shields.io/badge/Swift-6.2-FF653A?style=flat-square)](https://swift.org)
 [![License](https://img.shields.io/badge/license-MIT-FF653A?style=flat-square)](LICENSE)
 
-**dictate** is push-to-talk dictation for macOS. Hold Right ⌘, talk, and let go. Your speech is transcribed on-device with Parakeet, cleaned up by Claude Haiku, and pasted wherever your cursor is.
+**dictate** is push-to-talk dictation for macOS. Hold Right ⌘, talk, and let go. Your speech is transcribed on-device with Parakeet, cleaned up by Claude Haiku, and pasted wherever your cursor is. If no text field has focus, the dictation stays on the clipboard so you can paste it yourself.
 
 ## Install
 
