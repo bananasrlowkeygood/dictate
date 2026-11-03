@@ -3,9 +3,11 @@ import AVFoundation
 
 /// Hold Right ⌘ to dictate, release to paste. Double-tap for hands-free
 /// (tap again to finish, Esc cancels). Hold Shift at any point to paste the
-/// raw transcript instead of the polished one.
+/// raw transcript instead of the polished one. Holding the Siri Remote's Siri button
+/// does the same with the remote's own microphone (see `RemoteMic`).
 final class Dictate: NSObject, NSApplicationDelegate {
     private enum State { case idle, recording, handsFree, processing }
+    private enum Source { case mac, remote }
 
     private static let tapMaxDuration: TimeInterval = 0.25
     private static let doubleTapWindow: TimeInterval = 0.5
@@ -13,11 +15,14 @@ final class Dictate: NSObject, NSApplicationDelegate {
 
     private let hotkey = Hotkey()
     private let recorder = Recorder()
+    private let remoteMic = RemoteMic()
     private let transcriber = Transcriber()
     private let polisher = Polisher()
     private let hud = HUD()
 
     private var state = State.idle
+    private var source = Source.mac
+    private var remoteConnected = false   // remote-mic is buffering since Siri went down
     private var pressedAt: TimeInterval = 0
     private var lastTapAt: TimeInterval = -10
     private var raw = false
@@ -27,13 +32,16 @@ final class Dictate: NSObject, NSApplicationDelegate {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             if !granted { log("Microphone permission denied") }
         }
-        recorder.onLevel = { [weak self] level in
+        let showLevel: (Float) -> Void = { [weak self] level in
             DispatchQueue.main.async {
                 guard let self, self.state == .recording || self.state == .handsFree else { return }
                 self.hud.push(level: level)
             }
         }
+        recorder.onLevel = showLevel
+        remoteMic.onLevel = showLevel
         wire()
+        wireRemote()
         startHotkeyWhenTrusted()
         Task {
             do {
@@ -101,8 +109,54 @@ final class Dictate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Remote (bananasrlowkeygood/remote) posts these for the Siri button. It decides press vs hold: `down` comes
+    /// first, then `hold` once it's held long enough to dictate, then `up`. Connecting on `down` means the remote's
+    /// mic is already streaming by the time the hold is recognized, so the first word isn't lost.
+    private func wireRemote() {
+        let center = DistributedNotificationCenter.default()
+        let name = { (event: String) in Notification.Name("com.ravibandaru.dictate.remote.\(event)") }
+        center.addObserver(forName: name("down"), object: nil, queue: .main) { [weak self] _ in
+            guard let self, state == .idle else { return }
+            remoteConnected = remoteMic.start()
+        }
+        center.addObserver(forName: name("hold"), object: nil, queue: .main) { [weak self] _ in
+            guard let self, state == .idle else { return }
+            raw = NSEvent.modifierFlags.contains(.shift)
+            if remoteConnected {
+                source = .remote
+                state = .recording
+                session += 1
+                hud.showListening()
+            } else {
+                log("remote-mic isn't running; using the Mac's mic")
+                startRecording()
+                hud.showListening()
+            }
+            remoteConnected = false
+        }
+        center.addObserver(forName: name("up"), object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            if state == .recording {
+                finish()
+            } else if remoteConnected {   // a press, not a hold
+                remoteConnected = false
+                remoteMic.stop { _ in }
+            }
+        }
+    }
+
+    /// Stops whichever mic is recording. The remote's last frames trail the button by a moment, so wait for them.
+    private func stopSource(completion: @escaping ([Float]) -> Void) {
+        if source == .remote {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self.remoteMic.stop(completion: completion) }
+        } else {
+            recorder.stop(completion: completion)
+        }
+    }
+
     private func startRecording() {
         state = .recording
+        source = .mac
         session += 1
         let current = session
         recorder.start()
@@ -116,7 +170,7 @@ final class Dictate: NSObject, NSApplicationDelegate {
     private func cancel() {
         state = .idle
         session += 1
-        recorder.stop { _ in }
+        stopSource { _ in }
         hud.hide()
         Self.announceDone(pasted: false)
     }
@@ -133,7 +187,7 @@ final class Dictate: NSObject, NSApplicationDelegate {
         session += 1
         let raw = raw
         hud.showWorking()
-        recorder.stop { [weak self] samples in
+        stopSource { [weak self] samples in
             guard let self else { return }
             Task {
                 let started = Date()

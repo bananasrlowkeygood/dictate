@@ -29,6 +29,14 @@ Without a key or internet, Apple's on-device model does the cleanup instead.
 | `Shift` | Paste the raw transcript |
 | `Esc` | Cancel |
 
+## Siri Remote
+
+[remote](https://github.com/bananasrlowkeygood/remote) maps the Siri Remote's Siri button to Dictate: hold it, talk,
+and let go. It posts the distributed notifications `com.ravibandaru.dictate.remote.down`, `.hold` and `.up`. On `down`,
+Dictate connects to remote's `remote-mic` helper at `/var/run/com.ravibandaru.remote-mic.sock`, which streams the
+remote's own microphone as Opus frames (a 2-byte big-endian length, then the frame). If the helper isn't running,
+Dictate records from the Mac's microphone instead.
+
 ## Contact
 
 - Ravi Bandaru: ravi.bandaru@northwestern.edu
