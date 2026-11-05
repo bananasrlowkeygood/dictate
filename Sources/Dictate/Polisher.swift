@@ -14,7 +14,7 @@ struct Polisher {
         - Remove filler words (um, uh, er, like, you know, I mean, sort of) where they are fillers, and remove stutters, repeated words and false starts, keeping the speaker's final version of any phrase they restarted.
         - When the speaker corrects themselves ("Tuesday, no, Wednesday"), keep only the correction.
         - Fix punctuation, capitalization and obvious transcription errors.
-        - Speech recognition mangles names, brands and jargon it doesn't know, often splitting them into similar-sounding words ("Cal, she" or "calchie" for "Kalshi"). When a word or phrase sounds like a vocabulary term, or like a well-known name that fits the context, write that term.
+        - Speech recognition mangles names, brands and jargon it doesn't know, often splitting them into similar-sounding words ("Cal, she" or "calchie" for "Kalshi"). Write a vocabulary term, or a well-known name, only when the words sound like the whole of it, every part ("bananas are low key good" is "bananasrlowkeygood"), and it fits the sentence. A phrase that matches only part of a term is not that term ("bananas good" stays "bananas good"). When in doubt, keep the words as spoken.
         - Format the text for where it is going. In a browser address bar or other URL field, give a bare web address or search query: spoken "dot" becomes ".", lowercase domains, no spaces inside an address, no ending punctuation. In a search field, leave off the ending period.
         - Use the context and vocabulary only to get the speaker's words right. Never add them to the output.
         - Keep the speaker's own words, tone and meaning. Don't add content, summarize, or make it more formal.
