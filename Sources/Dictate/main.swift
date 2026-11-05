@@ -186,6 +186,7 @@ final class Dictate: NSObject, NSApplicationDelegate {
         state = .processing
         session += 1
         let raw = raw
+        let context = Context.current()
         hud.showWorking()
         stopSource { [weak self] samples in
             guard let self else { return }
@@ -199,7 +200,7 @@ final class Dictate: NSObject, NSApplicationDelegate {
                 }
                 let (text, path) = transcript.isEmpty || raw
                     ? (transcript, Polisher.Path.raw)
-                    : await self.polisher.polish(transcript)
+                    : await self.polisher.polish(transcript, context: context)
                 let elapsed = Int(Date().timeIntervalSince(started) * 1000)
                 await MainActor.run {
                     self.hud.hide()
@@ -211,7 +212,7 @@ final class Dictate: NSObject, NSApplicationDelegate {
                         Self.announceDone(pasted: false)
                     } else {
                         Paster.paste(text)
-                        log("Pasted via \(raw ? "raw (Shift)" : path.rawValue) in \(elapsed) ms")
+                        log("Pasted via \(raw ? "raw (Shift)" : path.rawValue) in \(elapsed) ms into \(context.app ?? "?") (\(context.field ?? "no field"))")
                         Self.announceDone(pasted: true)
                     }
                 }
