@@ -59,14 +59,16 @@ struct Polisher {
     }
 
     private func claude(_ prompt: String, key: String) async throws -> String? {
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!, timeoutInterval: 8)
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!,
+                                 // Long dictations take longer to rewrite; allow about 1 s per 300 characters on top.
+                                 timeoutInterval: 8 + Double(prompt.count) / 300)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue(key, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         let body: [String: Any] = [
             "model": "claude-haiku-5-5",
-            "max_tokens": 4096,
+            "max_tokens": 8192,
             // Cleanup needs no reasoning; thinking off keeps latency down.
             "thinking": ["type": "disabled"],
             "output_config": ["effort": "low"],
