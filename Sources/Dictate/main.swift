@@ -11,7 +11,7 @@ final class Dictate: NSObject, NSApplicationDelegate {
 
     private static let tapMaxDuration: TimeInterval = 0.25
     private static let doubleTapWindow: TimeInterval = 0.5
-    private static let hudDelay: TimeInterval = 0.2
+    private static let hudDelay: TimeInterval = 0.15
 
     private let hotkey = Hotkey()
     private let recorder = Recorder()

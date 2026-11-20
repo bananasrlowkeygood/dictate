@@ -1,7 +1,7 @@
 import AppKit
 
-/// Frosted pill above the Dock with soft purple light drifting inside it. While listening the light
-/// swells and brightens with your voice; while transcribing and polishing it turns lavender and breathes.
+/// Frosted pill above the Dock with soft violet-to-pink light drifting inside it. It pops in, the light
+/// swells with your voice while listening, breathes while transcribing and polishing, and fades out when done.
 final class HUD {
     private static let size = NSSize(width: 116, height: 36)
 
@@ -16,20 +16,23 @@ final class HUD {
         let period: Double       // seconds per loop
     }
 
+    // Same palette as the icon: violet → orchid → pink, lighter while working.
     private static let orbs: [Orb] = [
-        Orb(listening: 0x7C3AED, working: 0x8B5CF6, gain: 1.0, diameter: 54, home: 0.30, reach: 22, period: 4.2),
-        Orb(listening: 0xC026D3, working: 0xC084FC, gain: 0.7, diameter: 46, home: 0.66, reach: 26, period: 5.6),
-        Orb(listening: 0xA855F7, working: 0xA78BFA, gain: 1.2, diameter: 50, home: 0.48, reach: 30, period: 3.6),
-        Orb(listening: 0x6366F1, working: 0x818CF8, gain: 0.85, diameter: 42, home: 0.78, reach: 18, period: 6.4),
+        Orb(listening: 0x8B5CF6, working: 0xA78BFA, gain: 1.0, diameter: 54, home: 0.30, reach: 22, period: 4.2),
+        Orb(listening: 0xE879F9, working: 0xF0ABFC, gain: 0.7, diameter: 46, home: 0.66, reach: 26, period: 5.6),
+        Orb(listening: 0xC084FC, working: 0xD8B4FE, gain: 1.2, diameter: 50, home: 0.48, reach: 30, period: 3.6),
+        Orb(listening: 0x818CF8, working: 0xA5B4FC, gain: 0.85, diameter: 42, home: 0.78, reach: 18, period: 6.4),
     ]
 
     private static let quietScale: CGFloat = 0.55
-    private static let quietOpacity: Float = 0.6
+    private static let quietOpacity: Float = 0.65
 
     private let panel: NSPanel
     private let field = CALayer()
     private var lights: [CAGradientLayer] = []
     private var level: CGFloat = 0
+    private var visible = false
+    private var generation = 0   // bumps on every show/hide so a finished fade-out can't hide a newer show
 
     init() {
         panel = NSPanel(
@@ -43,6 +46,7 @@ final class HUD {
         panel.hasShadow = true
         panel.level = .statusBar
         panel.ignoresMouseEvents = true
+        panel.animationBehavior = .none
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
 
         let bounds = NSRect(origin: .zero, size: Self.size)
@@ -77,6 +81,16 @@ final class HUD {
             field.addSublayer(light)
             lights.append(light)
         }
+
+        // Hairline edge so the pill reads crisply on any background.
+        let edge = CAShapeLayer()
+        let radius = Self.size.height / 2
+        edge.path = CGPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), cornerWidth: radius - 0.5, cornerHeight: radius - 0.5, transform: nil)
+        edge.fillColor = nil
+        edge.strokeColor = NSColor(srgbRed: 0.75, green: 0.6, blue: 1, alpha: 0.35).cgColor
+        edge.lineWidth = 1
+        lightView.layer?.addSublayer(edge)
+
         panel.contentView = container
     }
 
@@ -99,28 +113,28 @@ final class HUD {
         show()
     }
 
-    /// Swells and brightens the light with the mic level; rises quickly, fades gently.
+    /// Swells and brightens the light with the mic level; jumps up fast, settles quickly.
     func push(level rms: Float) {
-        level = max(min(1, CGFloat(sqrt(rms)) * 3.5), level * 0.85)
+        level = max(min(1, CGFloat(sqrt(rms)) * 4), level * 0.8)
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.12)
+        CATransaction.setAnimationDuration(0.07)
         for (light, orb) in zip(lights, Self.orbs) {
             let l = min(1, level * orb.gain)
             light.transform = Self.scale(Self.quietScale + 0.75 * l)
-            light.opacity = Self.quietOpacity + 0.4 * Float(l)
+            light.opacity = Self.quietOpacity + 0.35 * Float(l)
         }
         CATransaction.commit()
     }
 
     func showWorking() {
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.4)
+        CATransaction.setAnimationDuration(0.22)
         setDriftSpeed(2.2)
         let now = field.convertTime(CACurrentMediaTime(), from: nil)
         for (i, (light, orb)) in zip(lights, Self.orbs).enumerated() {
             light.colors = Self.glow(orb.working)
             light.transform = Self.scale(0.8)
-            light.opacity = 0.8
+            light.opacity = 0.85
             let breathe = CABasicAnimation(keyPath: "transform.scale")
             breathe.fromValue = 0.6
             breathe.toValue = 1.0
@@ -136,16 +150,54 @@ final class HUD {
         show()
     }
 
+    /// Fades out quickly. If the pill only just appeared (a cancelled tap), it goes at once.
     func hide() {
-        panel.orderOut(nil)
-        lights.forEach { $0.removeAllAnimations() }
+        generation += 1
+        guard visible else { return }
+        visible = false
+        let current = generation
+        let done = { [weak self] in
+            guard let self, self.generation == current else { return }
+            self.panel.orderOut(nil)
+            self.lights.forEach { $0.removeAllAnimations() }
+        }
+        if panel.alphaValue < 1 {
+            done()
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.14
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        }, completionHandler: done)
     }
 
     private func show() {
+        generation += 1
         guard let screen = NSScreen.main else { return }
-        let visible = screen.visibleFrame
-        panel.setFrameOrigin(NSPoint(x: visible.midX - Self.size.width / 2, y: visible.minY + 14))
+        let area = screen.visibleFrame
+        panel.setFrameOrigin(NSPoint(x: area.midX - Self.size.width / 2, y: area.minY + 14))
+        if visible && panel.isVisible && panel.alphaValue > 0 {
+            panel.animator().alphaValue = 1
+            return
+        }
+        visible = true
+        panel.alphaValue = 0
         panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.1
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+        }
+        // The light springs open as the pill appears.
+        let pop = CASpringAnimation(keyPath: "transform.scale")
+        pop.fromValue = 0.4
+        pop.toValue = 1
+        pop.damping = 14
+        pop.stiffness = 320
+        pop.mass = 0.8
+        pop.duration = pop.settlingDuration
+        field.add(pop, forKey: "pop")
     }
 
     /// Changes how fast everything inside the pill moves without making the orbs jump.
