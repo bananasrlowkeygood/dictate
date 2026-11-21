@@ -12,6 +12,20 @@ final class RemoteMic {
     private var fd: Int32 = -1
     private var samples: [Float] = []
     private var frames = 0
+    private var lastFrameAt = Date()
+
+    /// The remote stops sending audio after 3,000 frames (60 s), even while Siri is still held: a limit in the
+    /// remote itself. Close to that count with no frame for half a second means it has stopped.
+    static let frameCap = 3000
+
+    /// Whether we're connected to the helper, so a new connection doesn't cut off one being read.
+    var active: Bool { lock.lock(); defer { lock.unlock() }; return fd >= 0 }
+
+    /// Whether the remote has stopped sending because it hit its 60-second limit.
+    var reachedCap: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return fd >= 0 && frames >= Self.frameCap - 100 && Date().timeIntervalSince(lastFrameAt) > 0.5
+    }
 
     /// Connects and starts buffering. Returns false if the helper isn't running.
     func start() -> Bool {
@@ -26,7 +40,7 @@ final class RemoteMic {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(s, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         guard connected == 0 else { close(s); return false }
-        lock.lock(); fd = s; samples.removeAll(keepingCapacity: true); frames = 0; lock.unlock()
+        lock.lock(); fd = s; samples.removeAll(keepingCapacity: true); frames = 0; lastFrameAt = Date(); lock.unlock()
         Thread.detachNewThread { [weak self] in self?.read(from: s) }
         return true
     }
@@ -74,7 +88,7 @@ final class RemoteMic {
             let rms = sqrt(chunk.reduce(0) { $0 + $1 * $1 } / Float(chunk.count))
             lock.lock()
             let live = fd == s
-            if live { samples.append(contentsOf: chunk); frames += 1 }
+            if live { samples.append(contentsOf: chunk); frames += 1; lastFrameAt = Date() }
             lock.unlock()
             guard live else { return }
             onLevel?(rms)

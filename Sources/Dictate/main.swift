@@ -28,6 +28,14 @@ final class Dictate: NSObject, NSApplicationDelegate {
     private var raw = false
     private var session = 0
 
+    // The Siri Remote sends at most 60 s of audio per hold. When a hold runs into that, a cue plays; letting go pastes
+    // that part without Remote pressing Return, and the next hold carries on from it.
+    private var capWatch: Timer?
+    private var capped = false        // this remote hold ran into the 60 s limit
+    private var joinNext = false      // the last paste was a capped part, so the next remote dictation continues it
+    private var holdWaiting = false   // a new hold began while the last part was still being processed
+    private var upWaiting = false     // ...and it has already ended
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             if !granted { log("Microphone permission denied") }
@@ -116,32 +124,59 @@ final class Dictate: NSObject, NSApplicationDelegate {
         let center = DistributedNotificationCenter.default()
         let name = { (event: String) in Notification.Name("com.ravibandaru.dictate.remote.\(event)") }
         center.addObserver(forName: name("down"), object: nil, queue: .main) { [weak self] _ in
-            guard let self, state == .idle else { return }
+            // While the last part is still processing, start buffering too: the next hold of a long dictation
+            // often comes right after the cue.
+            guard let self, state == .idle || (state == .processing && !remoteMic.active) else { return }
             remoteConnected = remoteMic.start()
         }
         center.addObserver(forName: name("hold"), object: nil, queue: .main) { [weak self] _ in
-            guard let self, state == .idle else { return }
+            guard let self else { return }
+            if state == .processing {
+                if remoteConnected { holdWaiting = true }   // begins once the last part is pasted
+                return
+            }
+            guard state == .idle else { return }
             raw = NSEvent.modifierFlags.contains(.shift)
             if remoteConnected {
-                source = .remote
-                state = .recording
-                session += 1
-                hud.showListening()
+                beginRemoteRecording()
             } else {
                 log("remote-mic isn't running; using the Mac's mic")
                 startRecording()
                 hud.showListening()
             }
-            remoteConnected = false
         }
         center.addObserver(forName: name("up"), object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             if state == .recording {
                 finish()
+            } else if holdWaiting {
+                upWaiting = true
             } else if remoteConnected {   // a press, not a hold
                 remoteConnected = false
                 remoteMic.stop { _ in }
             }
+        }
+    }
+
+    /// Records from the remote's mic, which has been buffering since `down`.
+    private func beginRemoteRecording() {
+        source = .remote
+        state = .recording
+        session += 1
+        capped = false
+        remoteConnected = false
+        hud.showListening()
+        let current = session
+        capWatch?.invalidate()
+        capWatch = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
+            guard let self, session == current, state == .recording else { timer.invalidate(); return }
+            guard remoteMic.reachedCap else { return }
+            timer.invalidate()
+            capped = true
+            log("Remote mic reached its 60 s limit")
+            let tink = NSSound(named: "Tink")
+            tink?.volume = 0.4
+            tink?.play()
         }
     }
 
@@ -177,15 +212,20 @@ final class Dictate: NSObject, NSApplicationDelegate {
 
     /// Tells other apps a dictation ended. Remote (bananasrlowkeygood/remote) waits for this
     /// to press Return after a dictation started from the Siri Remote.
-    static func announceDone(pasted: Bool) {
+    /// `continued` means the remote's 60 s limit cut this part off and more is coming, so Remote doesn't send it yet.
+    static func announceDone(pasted: Bool, continued: Bool = false) {
         DistributedNotificationCenter.default().postNotificationName(
-            .init("com.ravibandaru.dictate.done"), object: nil, userInfo: ["pasted": pasted], deliverImmediately: true)
+            .init("com.ravibandaru.dictate.done"), object: nil,
+            userInfo: ["pasted": pasted, "continued": continued], deliverImmediately: true)
     }
 
     private func finish() {
         state = .processing
         session += 1
         let raw = raw
+        let fromRemote = source == .remote
+        let continued = fromRemote && capped
+        let join = fromRemote && joinNext
         let context = Context.current()
         hud.showWorking()
         stopSource { [weak self] samples in
@@ -203,7 +243,6 @@ final class Dictate: NSObject, NSApplicationDelegate {
                     : await self.polisher.polish(transcript, context: context)
                 let elapsed = Int(Date().timeIntervalSince(started) * 1000)
                 await MainActor.run {
-                    self.hud.hide()
                     self.state = .idle
                     if text.isEmpty {
                         let pop = NSSound(named: "Pop")
@@ -211,9 +250,21 @@ final class Dictate: NSObject, NSApplicationDelegate {
                         pop?.play()
                         Self.announceDone(pasted: false)
                     } else {
-                        Paster.paste(text)
-                        log("Pasted via \(raw ? "raw (Shift)" : path.rawValue) in \(elapsed) ms into \(context.app ?? "?") (\(context.field ?? "no field"))")
-                        Self.announceDone(pasted: true)
+                        Paster.paste(join ? " " + text : text)
+                        self.joinNext = continued
+                        log("Pasted via \(raw ? "raw (Shift)" : path.rawValue) in \(elapsed) ms into \(context.app ?? "?") (\(context.field ?? "no field"))\(continued ? ", more to come" : "")")
+                        Self.announceDone(pasted: true, continued: continued)
+                    }
+                    if self.holdWaiting {
+                        self.holdWaiting = false
+                        self.raw = NSEvent.modifierFlags.contains(.shift)
+                        self.beginRemoteRecording()
+                        if self.upWaiting {
+                            self.upWaiting = false
+                            self.finish()
+                        }
+                    } else {
+                        self.hud.hide()
                     }
                 }
             }
